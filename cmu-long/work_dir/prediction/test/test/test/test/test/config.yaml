@@ -1,0 +1,56 @@
+# command line: main.py prediction -c ../config/CMU/long/test.yaml
+
+actions: all
+base_lr: 0.01
+batch_size: 32
+config: ../config/CMU/long/test.yaml
+crossw_dir: test
+debug: false
+device:
+- 0
+edge_weighting: true
+eval_interval: 1000
+fusion_layer_dir: test
+ignore_weights: []
+iter_num: 10000
+lamda: 0.6
+lamda_dir: test
+learning_rate_dir: test
+log_interval: 100
+model: net.model.Model
+model_args:
+    cross_w: 0.3
+    fusion_layer: 2
+    graph_args_b:
+        layout: cmu
+        strategy: distance
+    graph_args_j:
+        layout: cmu
+        strategy: distance
+    graph_args_p:
+        layout: cmu
+        strategy: distance
+    n_hid_dec: 256
+    n_hid_enc: 256
+    n_in_dec: 9
+    n_in_enc: 3
+nesterov: true
+note: test
+optimizer: SGD
+pavi_log: false
+phase: test
+print_log: true
+sample_dir: ../samples
+save_interval: 1000
+save_log: true
+save_result: false
+savemotion_interval: 200000
+source_seq_len: 50
+step: []
+target_seq_len: 25
+test_dir: ../data/cmu/test
+train_dir: ../data/cmu/train
+use_gpu: true
+weight_decay: 0.0001
+weights: /projectnb/ec523bn/students/ffayza/project/DMGNN/cmu-long/work_dir/prediction/fusion_2/adam_1e-4/lamda_06/cross_03/mask2/iter32000_model.pt
+work_dir: ./work_dir/prediction

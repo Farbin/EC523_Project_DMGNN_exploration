@@ -1,0 +1,4 @@
+/projectnb/epic-iarpa/ffayza/venvs/triosim-env/lib/python3.10/site-packages/numpy/core/fromnumeric.py:3504: RuntimeWarning: Mean of empty slice.
+  return _methods._mean(a, axis=axis, dtype=dtype,
+/projectnb/epic-iarpa/ffayza/venvs/triosim-env/lib/python3.10/site-packages/numpy/core/_methods.py:129: RuntimeWarning: invalid value encountered in scalar divide
+  ret = ret.dtype.type(ret / rcount)
