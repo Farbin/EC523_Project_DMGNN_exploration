@@ -21,6 +21,8 @@ from torchlight import import_class
 from .processor import Processor
 from .data_tools import *
 
+from .visualize_cmu_short import animate_stick_3d_from_channels
+
 
 def weights_init(m):
     classname = m.__class__.__name__
@@ -143,7 +145,7 @@ class REC_Processor(Processor):
         self.epoch_info['mean_loss']= np.mean(loss_value)
 
 
-    def test(self, evaluation=True, iter_time=0, save_motion=False, phase=False):
+    def test(self, evaluation=True, iter_time=0, save_motion=True, phase=False):
 
         self.model.eval()
         loss_value = []
@@ -194,6 +196,26 @@ class REC_Processor(Processor):
                                      self.relrec_body,
                                      self.relsend_body,
                                      self.arg.lamda)
+                
+            # # ---------- Visualization hook (2D stickman) ----------
+            # if save_motion and action == "walking":
+            #     # outputs, targets: [N, V, T, 3] (N=8 SRNN samples, V=26, T=25)
+            #     pred = outputs[0].detach().cpu().numpy()   # [V, T, 3]
+            #     gt   = targets[0].detach().cpu().numpy()   # [V, T, 3]
+
+            #     # Visualizer expects [T, V, 3]
+            #     pred = np.transpose(pred, (1, 0, 2))
+            #     gt   = np.transpose(gt, (1, 0, 2))
+
+            #     gif_name = f"cmu_short_{action}_iter{iter_time}_2d.gif"
+            #     animate_cmu_sequence_2d(
+            #         pred,
+            #         gt_seq=gt,
+            #         interval=80,       # a bit slower, easier to follow
+            #         save_path=gif_name,
+            #         center=True,
+            #     )
+            # # ------------------------------------------------------
 
             if evaluation:
                 mean_errors = np.zeros((8, 25), dtype=np.float32)
@@ -216,6 +238,17 @@ class REC_Processor(Processor):
                     for j in np.arange(t):
                         for k in np.arange(0,115,3):
                             target_euler[j,k:k+3] = rotmat2euler(expmap2rotmat(target_denorm[j,k:k+3]))
+
+                    # --- stickman visualization ---
+                    if save_motion and i == 0:
+                        gif_name = f"cmu_short_{action}_scale_123.gif"
+                        animate_stick_3d_from_channels(
+                            output_denorm,          # [T, D]
+                            gt_channels=target_denorm,
+                            interval=500,
+                            save_path=gif_name,
+                        )
+                    # ---------------------------------------------------
 
                     target_euler[:,0:6] = 0
                     idx_to_use1 = np.where(np.std(target_euler,0)>1e-4)[0]
