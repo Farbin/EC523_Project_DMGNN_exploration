@@ -9,12 +9,40 @@ from net.utils.operation import PartLocalInform, BodyLocalInform
 
 class Model(nn.Module):
     
-    def __init__(self, n_in_enc, n_hid_enc, n_in_dec, n_hid_dec, graph_args_j, graph_args_p, graph_args_b, fusion_layer, cross_w, **kwargs):
+    # def __init__(self, n_in_enc, n_hid_enc, n_in_dec, n_hid_dec, graph_args_j, graph_args_p, graph_args_b, fusion_layer, cross_w, **kwargs):
+    #     super().__init__()
+
+    #     self.encoder_pos = Encoder(n_in_enc, graph_args_j, graph_args_p, graph_args_b, True, fusion_layer, cross_w, **kwargs)
+    #     self.encoder_vel = Encoder(n_in_enc, graph_args_j, graph_args_p, graph_args_b, True, fusion_layer, cross_w, **kwargs)
+    #     self.encoder_acl = Encoder(n_in_enc, graph_args_j, graph_args_p, graph_args_b, True, fusion_layer, cross_w, **kwargs)
+    #     self.decoder = Decoder(n_in_dec, n_hid_dec, graph_args_j, **kwargs)
+    #     self.linear = nn.Linear(n_hid_enc*3, n_hid_dec)
+    #     self.relu = nn.ReLU()
+
+    def __init__(self, n_in_enc, n_hid_enc, n_in_dec, n_hid_dec,
+                 graph_args_j, graph_args_p, graph_args_b,
+                 fusion_layer, cross_w, scales_mode='123', **kwargs):
         super().__init__()
 
-        self.encoder_pos = Encoder(n_in_enc, graph_args_j, graph_args_p, graph_args_b, True, fusion_layer, cross_w, **kwargs)
-        self.encoder_vel = Encoder(n_in_enc, graph_args_j, graph_args_p, graph_args_b, True, fusion_layer, cross_w, **kwargs)
-        self.encoder_acl = Encoder(n_in_enc, graph_args_j, graph_args_p, graph_args_b, True, fusion_layer, cross_w, **kwargs)
+        # choose which encoder implementation to use based on scales_mode
+        self.scales_mode = scales_mode
+        if scales_mode == '123':
+            Enc = Encoder          # original 3-scale encoder
+        elif scales_mode == '12':
+            Enc = Encoder12        # new encoder: scales 1 & 2 only
+        elif scales_mode == '1':
+            # use original encoder but rely on config (fusion_layer=0, lamda=0)
+            # to effectively make it joint-only
+            Enc = Encoder
+        else:
+            raise ValueError(f'Unknown scales_mode: {scales_mode}')
+
+        self.encoder_pos = Enc(n_in_enc, graph_args_j, graph_args_p, graph_args_b,
+                               True, fusion_layer, cross_w, **kwargs)
+        self.encoder_vel = Enc(n_in_enc, graph_args_j, graph_args_p, graph_args_b,
+                               True, fusion_layer, cross_w, **kwargs)
+        self.encoder_acl = Enc(n_in_enc, graph_args_j, graph_args_p, graph_args_b,
+                               True, fusion_layer, cross_w, **kwargs)
         self.decoder = Decoder(n_in_dec, n_hid_dec, graph_args_j, **kwargs)
         self.linear = nn.Linear(n_hid_enc*3, n_hid_dec)
         self.relu = nn.ReLU()
@@ -200,6 +228,97 @@ class Encoder(nn.Module):
         x_out = torch.mean(self.s1_l5(x_s1_5, self.A_j*self.emul_s1[4]+self.eadd_s1[4]), dim=2)
 
         return x_out
+
+
+########################################################## GPT - START ###################################################################
+
+class Encoder12(Encoder):
+    """
+    Encoder variant that uses only scale-1 (joints) and scale-2 (parts),
+    corresponding to 'Scales = 1,2' in Table 6. It reuses Encoder.__init__
+    and overrides forward to ignore the body scale (scale 3).
+    """
+    def forward(self, x, relrec_s1, relsend_s1, relrec_s2, relsend_s2,
+                relrec_s3, relsend_s3, lamda_p):
+        # same preprocessing as Encoder
+        N, T, D = x.size()
+        V = self.A_j.size()[1]
+        x = x.contiguous().view(N, T, V, -1)
+        x = x.permute(0, 3, 1, 2).contiguous()
+
+        # initialize scales 1 and 2 only
+        x_s1_0, x_s2_0 = x, self.s2_init(x)
+
+        if self.fusion_layer == 0:
+            # no cross-scale fusion, just separate stacks
+            x_s1_1 = self.s1_l1(x_s1_0, self.A_j*self.emul_s1[0]+self.eadd_s1[0])
+            x_s2_1 = self.s2_l1(x_s2_0, self.A_p*self.emul_s2[0]+self.eadd_s2[0])
+
+            x_s1_2 = self.s1_l2(x_s1_1, self.A_j*self.emul_s1[1]+self.eadd_s1[1])
+            x_s2_2 = self.s2_l2(x_s2_1, self.A_p*self.emul_s2[1]+self.eadd_s2[1])
+
+            x_s1_3 = self.s1_l3(x_s1_2, self.A_j*self.emul_s1[2]+self.eadd_s1[2])
+            x_s2_3 = self.s2_l3(x_s2_2, self.A_p*self.emul_s2[2]+self.eadd_s2[2])
+
+            x_s1_4 = self.s1_l4(x_s1_3, self.A_j*self.emul_s1[3]+self.eadd_s1[3])
+            x_s2_4 = self.s2_l4(x_s2_3, self.A_p*self.emul_s2[3]+self.eadd_s2[3])
+
+        elif self.fusion_layer == 1:
+            # one stage of S1 <-> S2 fusion
+            x_s1_1 = self.s1_l1(x_s1_0, self.A_j*self.emul_s1[0]+self.eadd_s1[0])
+            x_s2_1 = self.s2_l1(x_s2_0, self.A_p*self.emul_s2[0]+self.eadd_s2[0])
+
+            c12_1 = self.j2p_1(x_s1_1, x_s2_1, relrec_s1, relsend_s1, relrec_s2, relsend_s2)
+            r12_1 = self.p2j_1(x_s2_1, x_s1_1, relrec_s2, relsend_s2, relrec_s1, relsend_s1)
+
+            x_s1_1 = self.fuse_operation(x_s1_1, r12_1, 0,           self.cross_w)
+            x_s2_1 = self.fuse_operation(x_s2_1, c12_1, 0,           self.cross_w)
+
+            x_s1_2 = self.s1_l2(x_s1_1, self.A_j*self.emul_s1[1]+self.eadd_s1[1])
+            x_s2_2 = self.s2_l2(x_s2_1, self.A_p*self.emul_s2[1]+self.eadd_s2[1])
+
+            x_s1_3 = self.s1_l3(x_s1_2, self.A_j*self.emul_s1[2]+self.eadd_s1[2])
+            x_s2_3 = self.s2_l3(x_s2_2, self.A_p*self.emul_s2[2]+self.eadd_s2[2])
+
+            x_s1_4 = self.s1_l4(x_s1_3, self.A_j*self.emul_s1[3]+self.eadd_s1[3])
+            x_s2_4 = self.s2_l4(x_s2_3, self.A_p*self.emul_s2[3]+self.eadd_s2[3])
+
+        elif self.fusion_layer == 2:
+            # two stages of S1 <-> S2 fusion
+            x_s1_1 = self.s1_l1(x_s1_0, self.A_j*self.emul_s1[0]+self.eadd_s1[0])
+            x_s2_1 = self.s2_l1(x_s2_0, self.A_p*self.emul_s2[0]+self.eadd_s2[0])
+
+            c12_1 = self.j2p_1(x_s1_1, x_s2_1, relrec_s1, relsend_s1, relrec_s2, relsend_s2)
+            r12_1 = self.p2j_1(x_s2_1, x_s1_1, relrec_s2, relsend_s2, relrec_s1, relsend_s1)
+            x_s1_1 = self.fuse_operation(x_s1_1, r12_1, 0,           self.cross_w)
+            x_s2_1 = self.fuse_operation(x_s2_1, c12_1, 0,           self.cross_w)
+
+            x_s1_2 = self.s1_l2(x_s1_1, self.A_j*self.emul_s1[1]+self.eadd_s1[1])
+            x_s2_2 = self.s2_l2(x_s2_1, self.A_p*self.emul_s2[1]+self.eadd_s2[1])
+
+            c12_2 = self.j2p_2(x_s1_2, x_s2_2, relrec_s1, relsend_s1, relrec_s2, relsend_s2)
+            r12_2 = self.p2j_2(x_s2_2, x_s1_2, relrec_s2, relsend_s2, relrec_s1, relsend_s1)
+            x_s1_2 = self.fuse_operation(x_s1_2, r12_2, 0,           self.cross_w)
+            x_s2_2 = self.fuse_operation(x_s2_2, c12_2, 0,           self.cross_w)
+
+            x_s1_3 = self.s1_l3(x_s1_2, self.A_j*self.emul_s1[2]+self.eadd_s1[2])
+            x_s2_3 = self.s2_l3(x_s2_2, self.A_p*self.emul_s2[2]+self.eadd_s2[2])
+
+            x_s1_4 = self.s1_l4(x_s1_3, self.A_j*self.emul_s1[3]+self.eadd_s1[3])
+            x_s2_4 = self.s2_l4(x_s2_3, self.A_p*self.emul_s2[3]+self.eadd_s2[3])
+
+        else:
+            raise ValueError('No Such Fusion Architecture')
+
+        # only use part-scale feedback (no body)
+        x_s21 = self.s2_back(x_s2_4)
+        x_s1_5 = x_s1_4 + lamda_p * x_s21
+        x_out = torch.mean(self.s1_l5(x_s1_5, self.A_j*self.emul_s1[4]+self.eadd_s1[4]), dim=2)
+        return x_out
+
+
+########################################################### GPT - END ####################################################################
+
 
 
 class Decoder(nn.Module):
