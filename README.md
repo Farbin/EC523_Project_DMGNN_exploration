@@ -25,6 +25,54 @@ In this project, we:
 
 ## Repository Structure
 
+```text
+.
+├── README.md
+├── cmu-long/
+│   └── ...
+├── cmu-short/
+│   ├── main.py
+│   ├── net/
+│   │   ├── __init__.py
+│   │   ├── model.py                     # modified DMGNN model
+│   │   └── utils/
+│   ├── processor/
+│   │   └── ...
+│   ├── submit_job.sh
+│   └── work_dir/
+│       └── prediction/
+├── config/
+│   ├── CMU/
+│   │   ├── long/
+│   │   └── short/
+|   |      ├── test.yaml
+|   |      ├── train.yaml               # Config for Scale 1 only
+|   |      ├── train_scale12.yaml       # Config for Scales 1+2
+|   |      └── train_scale123.yaml      # Config for Scales 1+2+3
+│   └── H36M/
+│       ├── long/
+│       └── short/
+|           ├── test.yaml
+|           ├── train.yaml
+|           ├── train1.yaml              # Config for Scales 1 only
+|           ├── train12.yaml             # Config for Scales 1+2
+|           └── train123.yaml            # Config for Scales 1+2+3
+├── h36m-long/
+│   └── ...
+├── h36m-short/
+│   ├── main.py
+│   ├── net/
+│   │   ├── __init__.py
+│   │   ├── model.py                     # modified DMGNN model
+│   │   └── utils/
+│   └── processor/
+│       └── ...
+├── img/
+│   └── ...
+└── torchlight/
+    └── ...
+```
+
 ## Setting up the Environment on SCC
 Create a Python environment with the following libraries on SCC.
 - Python 3.6
